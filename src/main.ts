@@ -28,6 +28,7 @@ async function bootstrap() {
     credentials: true,
   });
 
+  //เปลี่ยนจาก localhost
   const port = process.env.PORT || 3000; 
   await app.listen(port, '0.0.0.0');
 }
