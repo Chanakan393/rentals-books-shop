@@ -25,43 +25,39 @@ export class RentalsController {
 
   @UseGuards(JwtAuthGuard)
   @Patch(':id/cancel')
-  async cancel(@Param('id') id: string) {
-    return this.rentalsService.cancelRental(id);
+  async cancel(@Param('id') id: string, @Req() req) {
+    // 🚀 แก้ไข: โยนค่า userId ไปด้วยเพื่อป้องกัน IDOR Vulnerability
+    return this.rentalsService.cancelRental(id, req.user.userId);
   }
 
   // ==========================================
   // 🔴 โซน Admin Only
   // ==========================================
 
-  // แอดมินดูสรุป Dashboard ประจำวัน
   @UseGuards(JwtAuthGuard, AdminGuard)
   @Get('dashboard')
   async getDashboardReports(@Query('date') date?: string) {
     return this.rentalsService.getDashboardReports(date);
   }
 
-  // แอดมินดูรายการที่เกินกำหนดคืน
   @UseGuards(JwtAuthGuard, AdminGuard)
   @Get('overdue')
   async getOverdueRentals() {
     return this.rentalsService.findOverdueRentals();
   }
 
-  // แอดมินดูประวัติการเช่าของลูกค้าแต่ละคน
   @UseGuards(JwtAuthGuard, AdminGuard)
   @Get('admin/user-history/:userId')
   async getUserHistoryForAdmin(@Param('userId') userId: string) {
-    return this.rentalsService.findMyHistory(userId); // ใช้ฟังก์ชันเดิมแต่ส่ง userId ของลูกค้าไป
+    return this.rentalsService.findMyHistory(userId); 
   }
 
-  // แอดมินยืนยันลูกค้ามารับหนังสือ (booked -> rented)
   @UseGuards(JwtAuthGuard, AdminGuard)
   @Patch(':id/pickup') 
   async pickup(@Param('id') id: string) {
     return this.rentalsService.pickupBook(id);
   }
 
-  // แอดมินยืนยันลูกค้าคืนหนังสือ (rented -> returned)
   @UseGuards(JwtAuthGuard, AdminGuard)
   @Patch(':id/return') 
   async returnBook(@Param('id') id: string) {

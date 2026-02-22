@@ -1,6 +1,6 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, isValidObjectId } from 'mongoose'; // 🚀 เพิ่ม isValidObjectId
 import { Rental, RentalDocument } from './entities/rental.entity';
 import { Book, BookDocument } from '../books/entities/book.entity';
 import { Payment, PaymentDocument } from '../payment/entities/payment.entity';
@@ -16,8 +16,10 @@ export class RentalsService {
     @InjectModel(Payment.name) private paymentModel: Model<PaymentDocument>,
   ) { }
 
-  // 1. ลูกค้ากดจองหนังสือ (booked)
   async rentBook(userId: string, bookId: string, days: number) {
+    // 🚀 แก้ไข: ป้องกัน Error 500 หากส่ง ID ผิดรูปแบบ
+    if (!isValidObjectId(bookId)) throw new BadRequestException('รหัสหนังสือไม่ถูกต้อง');
+    
     if (![3, 5, 7].includes(days)) {
       throw new BadRequestException('เลือกจำนวนวันเช่าได้แค่ 3, 5 หรือ 7 วันเท่านั้น');
     }
@@ -47,8 +49,8 @@ export class RentalsService {
     return rental.save();
   }
 
-  // 2. ลูกค้ามารับของ (booked -> rented)
   async pickupBook(rentalId: string) {
+    if (!isValidObjectId(rentalId)) throw new BadRequestException('รหัสรายการเช่าไม่ถูกต้อง');
     const rental = await this.rentalModel.findById(rentalId);
     if (!rental) throw new NotFoundException('ไม่พบรายการเช่านี้');
 
@@ -65,8 +67,8 @@ export class RentalsService {
     return rental.save();
   }
 
-  // 3. คืนหนังสือ (rented -> returned) พร้อมคำนวณค่าปรับ
   async returnBook(rentalId: string) {
+    if (!isValidObjectId(rentalId)) throw new BadRequestException('รหัสรายการเช่าไม่ถูกต้อง');
     const rental = await this.rentalModel.findById(rentalId);
     if (!rental || rental.status !== 'rented') {
       throw new BadRequestException('รายการไม่ถูกต้อง หรือหนังสือไม่ได้อยู่ในสถานะกำลังเช่า');
@@ -82,7 +84,6 @@ export class RentalsService {
       fine = diffDays * 10;
     }
 
-    // 🚀 แก้ไข: คืนสต็อกอย่างปลอดภัย ห้ามเกิน total เด็ดขาด
     const book = await this.bookModel.findById(rental.bookId);
     if (book) {
       const newAvailable = Math.min(book.stock.available + 1, book.stock.total);
@@ -96,10 +97,17 @@ export class RentalsService {
     return rental.save();
   }
 
-  // 4. ยกเลิกรายการจอง
-  async cancelRental(rentalId: string) {
+  // 🚀 แก้ไข: รับ userId มาเพื่อตรวจว่าเป็นเจ้าของบิลไหม
+  async cancelRental(rentalId: string, currentUserId: string) {
+    if (!isValidObjectId(rentalId)) throw new BadRequestException('รหัสรายการเช่าไม่ถูกต้อง');
+    
     const rental = await this.rentalModel.findById(rentalId);
     if (!rental) throw new NotFoundException('ไม่พบรายการเช่า');
+
+    // 🚀 ป้องกันการแอบยกเลิกของคนอื่น (IDOR)
+    if (rental.userId.toString() !== currentUserId) {
+      throw new ForbiddenException('คุณไม่มีสิทธิ์ยกเลิกรายการเช่าของผู้อื่น');
+    }
 
     if (['rented', 'returned', 'cancelled'].includes(rental.status)) {
       throw new BadRequestException('ไม่สามารถยกเลิกได้เนื่องจากรับหนังสือไปแล้ว');
@@ -119,7 +127,6 @@ export class RentalsService {
 
     rental.status = 'cancelled';
 
-    // 🚀 แก้ไข: คืนสต็อกอย่างปลอดภัย ห้ามเกิน total เด็ดขาด
     const book = await this.bookModel.findById(rental.bookId);
     if (book) {
       const newAvailable = Math.min(book.stock.available + 1, book.stock.total);
@@ -160,7 +167,6 @@ export class RentalsService {
       dueDate: { $lt: new Date() }
     });
 
-    // 🚀 แก้ไข: คิดรายได้เฉพาะรายการที่ paid และ "ไม่ถูกยกเลิก" เท่านั้น
     const revenue = transactions
       .filter(r => r.paymentStatus === 'paid' && r.status !== 'cancelled')
       .reduce((sum, r) => sum + r.cost, 0);
