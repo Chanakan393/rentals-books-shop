@@ -22,11 +22,14 @@ export class UsersService {
     return cleanPhone;
   }
 
-  // 🚀 แก้ไข: ป้องกัน Server พังจากการส่ง Data type อื่นๆ (เช่น null, array)
   private validateStringLengths(data: any) {
     if (data.username !== undefined) {
-      if (typeof data.username !== 'string' || data.username.trim().length < 1 || data.username.trim().length > 20) {
+      const trimmedUsername = data.username.trim();
+      if (typeof data.username !== 'string' || trimmedUsername.length < 1 || trimmedUsername.length > 20) {
         throw new BadRequestException('ชื่อผู้ใช้งานต้องเป็นข้อความและมีความยาว 1-20 ตัวอักษร');
+      }
+      if (/^\d+$/.test(trimmedUsername)) {
+        throw new BadRequestException('ชื่อผู้ใช้งานไม่สามารถเป็นตัวเลขล้วนได้ กรุณาผสมตัวอักษรด้วย');
       }
     }
     if (data.password !== undefined) {
@@ -42,23 +45,28 @@ export class UsersService {
   }
 
   async create(createUserDto: CreateUserDto): Promise<User> {
-    let { email, password } = createUserDto;
+    let { email, password, username } = createUserDto;
 
     this.validateStringLengths(createUserDto);
 
     email = email.toLowerCase().trim();
     createUserDto.email = email;
 
-    if (createUserDto.phoneNumber) {
-      createUserDto.phoneNumber = this.validateAndCleanPhoneNumber(createUserDto.phoneNumber);
+    // 🚀 เพิ่ม: เช็คว่า Username ซ้ำไหม
+    const usernameExists = await this.userModel.findOne({ username: username.trim() });
+    if (usernameExists) {
+      throw new BadRequestException('ชื่อผู้ใช้งาน (Username) นี้ถูกใช้งานไปแล้ว กรุณาใช้ชื่ออื่น');
     }
 
+    // เช็คว่า Email ซ้ำไหม
     const emailExists = await this.userModel.findOne({ email });
     if (emailExists) {
       throw new BadRequestException('Email นี้ถูกใช้งานไปแล้ว');
     }
 
     if (createUserDto.phoneNumber) {
+      createUserDto.phoneNumber = this.validateAndCleanPhoneNumber(createUserDto.phoneNumber);
+      // เช็คเบอร์โทรศัพท์ซ้ำไหม
       const phoneExists = await this.userModel.findOne({ phoneNumber: createUserDto.phoneNumber });
       if (phoneExists) {
         throw new BadRequestException('เบอร์โทรศัพท์นี้ถูกใช้งานไปแล้ว');
@@ -101,6 +109,12 @@ export class UsersService {
     if (!user) throw new NotFoundException('ไม่พบข้อมูลผู้ใช้งาน');
 
     this.validateStringLengths(updateUserDto);
+
+    // 🚀 เพิ่ม: เช็ค Username ซ้ำ ตอนแก้ไขโปรไฟล์
+    if (updateUserDto.username && updateUserDto.username.trim() !== user.username) {
+      const usernameExists = await this.userModel.findOne({ username: updateUserDto.username.trim() });
+      if (usernameExists) throw new BadRequestException('ชื่อผู้ใช้งาน (Username) นี้ถูกใช้งานโดยผู้ใช้อื่นแล้ว');
+    }
 
     if (updateUserDto.email) {
       updateUserDto.email = updateUserDto.email.toLowerCase().trim();
